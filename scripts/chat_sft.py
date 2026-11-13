@@ -161,23 +161,24 @@ for group in optimizer.param_groups:
     group["initial_lr"] = group["lr"]
 
 # SFT data mixture and DataLoader
-identity_conversations_filepath = os.path.join(base_dir, "identity_conversations.jsonl")
+# --- NanoCat (branch nanocat): SFT only on Sushma's Cat FAQs ---
+# The stock mixture (SmolTalk / MMLU / GSM8K / spelling) is replaced: those
+# tasks download large datasets and teach general skills, not Cat. NanoCat
+# learns only from the 112 FAQ conversations on the Cat page (100 train,
+# 12 held out for validation). The .jsonl files live in nanocat/ in this
+# repo; runs/nanocat_cpu.sh copies them into $NANOCHAT_BASE_DIR first.
+nanocat_faq_train = os.path.join(base_dir, "nanocat_faq_train.jsonl")
+nanocat_faq_val = os.path.join(base_dir, "nanocat_faq_val.jsonl")
 train_tasks = [
-    SmolTalk(split="train"), # 460K rows of general conversations
-    CustomJSON(filepath=identity_conversations_filepath), # 1000 rows of synthetic identity conversations
-    CustomJSON(filepath=identity_conversations_filepath), # 2 epochs of these
-    *[MMLU(subset="auxiliary_train", split="train") for _ in range(args.mmlu_epochs)], # 100K rows per epoch
-    *[GSM8K(subset="main", split="train") for _ in range(args.gsm8k_epochs)], # 8K rows per epoch
-    SimpleSpelling(size=200000, split="train"), # 200K rows of Simple Spelling (e.g. spell the word 'apple')
-    SpellingBee(size=80000, split="train"), # 80K rows of Spelling Bee (e.g. how many 'r' are in 'strawberry'?)
+    CustomJSON(filepath=nanocat_faq_train), # 100 Cat FAQ conversations
+    CustomJSON(filepath=nanocat_faq_train), # 2nd epoch
+    CustomJSON(filepath=nanocat_faq_train), # 3rd epoch
 ]
 train_dataset = TaskMixture(train_tasks)
-print0(f"Training mixture: {len(train_dataset):,} rows (MMLU x{args.mmlu_epochs}, GSM8K x{args.gsm8k_epochs})")
+print0(f"Training mixture: {len(train_dataset):,} rows (NanoCat FAQs x3 epochs)")
 val_dataset = TaskMixture([
-    SmolTalk(split="test"), # 24K rows in test set
-    MMLU(subset="all", split="test", stop=5200), # 14K rows in test set, use only 5.2K to match the train ratios
-    GSM8K(subset="main", split="test", stop=420), # 1.32K rows in test set, use only 420 to match the train ratios
-]) # total: 24K + 14K + 1.32K ~= 39K rows
+    CustomJSON(filepath=nanocat_faq_val), # 12 held-out Cat FAQ conversations
+])
 # DataLoader is defined here, it emits inputs, targets : 2D tensors of shape (device_batch_size, max_seq_len)
 # A big problem is that we don't know the final num_iterations in advance. So we create
 # these two global variables and update them from within the data generator.
